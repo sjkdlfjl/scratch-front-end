@@ -1,4 +1,5 @@
 <template>
+  <keep-alive>
   <div
     class="jsmind"
   >
@@ -78,6 +79,11 @@
           </svg>
         </div>
       </ul>
+
+    </div>
+    <div class="chatting">
+        <!-- <div>jkl</div> -->
+        <Chatting ></Chatting>
     </div>
 
     <div class="top-bar">
@@ -94,8 +100,9 @@
       </ul>
 
       <span class="export" @click="screen_shot">Export picture</span>
+      
     </div>
-
+    
     <div class="jsmind_layout">
       <div
         id="jsmind_container"
@@ -105,7 +112,7 @@
       ></div>
 
       <el-dialog
-        :title="createType === 'bro' ? 'add node' : 'add node'"
+        :title="createType === 'node' ? 'add node' : 'add GPT node'"
         :visible.sync="dialogVisible"
         width="600px"
         @closed="form = {}"
@@ -131,6 +138,14 @@
             <el-button
               type="primary"
               class="common-btn"
+              style="margin-left:100px"
+              @click="voice"
+              size="medium"
+              >voice</el-button
+            >
+            <el-button
+              type="primary"
+              class="common-btn"
               @click="sureEditNode"
               size="medium"
               >OK</el-button
@@ -138,6 +153,53 @@
           </div>
         </template>
       </el-dialog>
+
+
+
+     <!-- 用来语音和生成图像的描述 -->
+      <el-dialog
+        
+        :visible.sync="sureEditdesc_dialogVisible"
+        width="600px"
+        @closed="form = {}"
+        :destroy-on-close="true"
+        :lock-scroll="false"
+        :append-to-body="true"
+        v-if="selectNodeInfo && sureEditdesc_dialogVisible"
+      >
+      <!-- selectNodeInfo -->
+        <el-form label-width="80px" class="form-con">
+          <el-form-item label="Content">
+            <el-input
+              type="textarea"
+              :rows="2"
+              v-model="selectNodeInfo.Name"
+              class="ele-width"
+              maxLength="64"
+            ></el-input>
+          </el-form-item>
+        </el-form>
+        <template v-slot:footer>
+          <div class="right mr-10">
+            <el-button
+              type="primary"
+              class="common-btn"
+              style="margin-left:100px"
+              @click="voice"
+              size="medium"
+              >voice</el-button
+            >
+            <el-button
+              type="primary"
+              class="common-btn"
+              @click="sureEditdesc"
+              size="medium"
+              >OK</el-button
+            >
+          </div>
+        </template>
+      </el-dialog>
+      
     </div>
 
     <!-- 右键菜单 -->
@@ -153,26 +215,48 @@
       ref="context"
     >
       <slot>
-        <el-menu-item @click="addChild">add node</el-menu-item>
-        <el-menu-item @click="addChild">add GPT node</el-menu-item>
+        <el-menu-item v-show="showDescription" @click = "description">description</el-menu-item>
+        <el-menu-item v-show="showGenerateCode" @click = "addCode">generate code</el-menu-item>
+        <el-menu-item v-show="showImage" @click="draw">draw</el-menu-item>
+        <el-menu-item v-show="showImage" @click="text2img">generate</el-menu-item>
+        <!-- <el-menu-item v-show="showSound">upload</el-menu-item> -->
+        <el-menu-item v-show="showSound" @click="generateSound">generate</el-menu-item>
+        <el-menu-item v-show="!showImage & !showSound & !watchImage & !playSound" @click="addnode">add node</el-menu-item>
+        <el-menu-item v-show="!showImage & !showSound & !watchImage & !playSound" @click="addGPTnode">add GPT node</el-menu-item>
+        <el-menu-item  v-show="watchImage" @click="watch">watch</el-menu-item>
+        <!-- v-show="watchImage" -->
+        <el-menu-item v-show="playSound" @click="play">play</el-menu-item>
         <el-menu-item @click="delCard">delete</el-menu-item>
       </slot>
     </el-menu>
   </div>
+</keep-alive>
 </template>
 
 <script>
+import { post, ping } from '../function/request.js'
+import { code_img } from '../function/img'
+import img1 from "../assets/1.png"
+import img2 from "../assets/2.png"
+// import img from "../assets/img"
+import Chatting from './chatting/Chatting.vue'
 class node {
   constructor(at) {
     this.type = at
+
     this.node_list = new Array()
   }
 }
+
 export default {
+  components: {
+    Chatting
+  },
   watch: {
     'zoom.value'(val) {
       const zoom = val / 100
       this.jm.view.setZoom(zoom)
+
     },
     selectTypes(v) {
       this.loopTreeData(this.mind.data.children, (item) => {
@@ -202,8 +286,12 @@ export default {
   },
   data() {
     return {
+      desc_map: {},
       node_map: {},  //存放node 树
+      img_map: {}, //存放图片
+      sound_map: {}, //存放声音
       node_id_count: 100,
+      root: null,
       mind: {
         meta: {
           name: '思维导图',
@@ -216,53 +304,7 @@ export default {
           topic: 'input',
           type: '1',
           direction: 'right',
-          children: [
-            {
-              id: 'easy', // [必选] ID, 所有节点的ID不应有重复，否则ID重复的结节将被忽略
-              topic: 'Easy', // [必选] 节点上显示的内容
-              direction: 'right', // [可选] 节点的方向，此数据仅在第一层节点上有效，目前仅支持 left 和 right 两种，默认为 right
-              expanded: true, // [可选] 该节点是否是展开状态，默认为 true
-              type: '2', // [可选]自定义节点类型
-              children: [
-                { id: 'easy1', topic: 'Easy to show', type: '3' },
-                { id: 'easy2', topic: 'Easy to edit', type: '3' },
-                { id: 'easy3', topic: 'Easy to store', type: '3' },
-                { id: 'easy4', topic: 'Easy to embed', type: '3' }
-              ]
-            },
-            {
-              id: 'open',
-              topic: 'Open Source',
-              direction: 'right',
-              expanded: true,
-              type: '2',
-              children: [
-                { id: 'open1', topic: 'on GitHub', type: '3' },
-                { id: 'open2', topic: 'BSD License', type: '3' }
-              ]
-            },
-            {
-              id: 'powerful',
-              topic: 'Powerful',
-              direction: 'right',
-              type: '2',
-              children: [
-                { id: 'powerful1', topic: 'Base on Javascript', type: '3' },
-                { id: 'powerful2', topic: 'Base on HTML5', type: '3' },
-                { id: 'powerful3', topic: 'Depends on you', type: '3' }
-              ]
-            },
-            {
-              id: 'other',
-              topic: 'test node',
-              direction: 'right',
-              type: '2',
-              children: [
-                { id: 'other1', topic: "I'm from local variable", type: '3' },
-                { id: 'other2', topic: 'I can do everything', type: '3' }
-              ]
-            }
-          ]
+          children: []
         }
       },
       options: {
@@ -305,12 +347,12 @@ export default {
           transparent: 'rgb(67, 50, 173, 0.2)'
         },
         4: {
-          original: 'rgb(25, 144, 255)',
-          transparent: 'rgb(25, 144, 255, 0.2)'
-        },
-        5: {
           original: 'rgb(212, 42, 42)',
           transparent: 'rgb(212, 42, 42, 0.2)'
+        },
+        5: {
+          original: 'rgb(25, 144, 255)',
+          transparent: 'rgb(25, 144, 255, 0.2)'
         }
       },
       structure: {
@@ -321,13 +363,20 @@ export default {
         rectActiveColor: '#BACEFD'
       },
       dialogVisible: false,
+      sureEditdesc_dialogVisible: false,
       selectNodeInfo: {
         id: null,
         Name: ''
       }, // 选中节点信息
       tempNodeInfo: null, // 保存修改之前的信息
-      createType: '', // 添加平级or子级
+      createType: '', // 添加node 或 GPT node
       showMenu: false, // 是否显示右键菜单栏
+      showDescription: false,
+      showGenerateCode: false,
+      showImage: false,
+      showSound: false,
+      watchImage: false,
+      playSound: false,
       menuStyle: {
         top: '',
         bottom: '',
@@ -350,13 +399,13 @@ export default {
         {
           type: 'ks',
           value: '3',
-          name: 'Key Steps',
+          name: 'Material',
           status: true
         },
         {
           type: 'p',
           value: '4',
-          name: 'Programming',
+          name: 'Program',
           status: true
         },
         {
@@ -430,22 +479,25 @@ export default {
 
     // 切换思维导图结构
     toggleStucture(type) {
-      if (this.structure.active === type) return
+      // if (this.structure.active === type) return
+      this.jm.get_data(node_tree)
       this.structure.active = 'right'
+      console.log("toggle")
+      type = 'right'
       switch (type) {
         case 'side':
           // 两边分布
-          this.loopTreeData(this.mind.data.children, (item, i) => { item.direction = i % 2 ? 'left' : 'right' })
+          this.loopTreeData(this.mind.data.children, (item, i) => { item.direction = 'right' })
           break
 
         case 'left':
           // 向左分布
-          this.loopTreeData(this.mind.data.children, (item) => { item.direction = 'left' })
+          this.loopTreeData(this.mind.data.children, (item) => { item.direction = 'right' })
           break
 
         case 'right':
           // 向右分布
-          this.loopTreeData(this.mind.data.children, (item) => { item.direction = 'right' })
+          this.loopTreeData(this.jm.get_data('node_tree').data.children, (item) => { item.direction = 'right' })
           break
 
         default:
@@ -486,7 +538,7 @@ export default {
       // 右键菜单
       this.jm.view.add_event(this.editor, 'contextmenu', (e) => {
         const selectedNode = this.jm.get_selected_node()
-        console.log("selectNode:" + selectedNode.data.type)
+        // console.log("selectNode:" + selectedNode.data.type)
         //&& selectedNode.data.type
         if (selectedNode) {
           e.preventDefault()
@@ -511,14 +563,54 @@ export default {
             this.menuStyle.bottom = 'unset'
           }
           this.showMenu = true
+          let cur_type = this.node_map.get(selectedNode.id).type
+          if (cur_type == 2) {
+            this.showDescription = true
+          }
+          if (cur_type == 4 && selectedNode.children.length === 0 && selectedNode.parent.topic !== "声音" && selectedNode.parent.topic !== "图片") {
+            this.showGenerateCode = true
+          }
+          if (cur_type == 4) {
+            console.log("1")
+
+            console.log(selectedNode.parent.topic)
+            if (selectedNode.parent.topic === "图片")
+              this.watchImage = true
+            if (selectedNode.parent.topic === "声音") {
+              console.log("2")
+              this.playSound = true
+            }
+
+          }
+          if (cur_type == 3) {
+            if (selectedNode.topic === "图片")
+              this.showImage = true
+            if (selectedNode.topic === "声音")
+              this.showSound = true
+          }
         } else {
           this.showMenu = false
+          this.showDescription = false
+          this.showGenerateCode = false
+          this.showImage = false
+          this.showSound = false
+          this.watchImage = false
+          this.playSound = false
         }
       })
       this.node_map = new Map([[]]);
+      this.img_map = new Map([[]]);
+      this.sound_map = new Map([[]]);
+      this.desc_map = new Map([[]]);
       var root = this.jm.get_root();
       var root_node = new node(1);
       this.node_map.set(root.id, root_node);
+      this.root = root
+      // // base64编码的图片
+      // let baseImg = 'data:image/png;base64,R0lGODlhqASoAfcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACqMwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNVMzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYAM2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbVM2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmAM5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwrM8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+qM/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAACoBKgBAAitAPcJHEiwoMGDCBMqXMiwocOHECNKnEixosWLGDNq3Mixo8ePIEOKHEmypMmTKFOqXMmypcuXMGPKnEmzps2bOHPq3Mmzp8+fQIMKHUq0qNGjSJMqXcq0qdOnUKNKnUq1qtWrWLNq3cq1q9evYMOKHUu2rNmzaNOqXcu2rdu3cOPKnUu3rt27ePPq3cu3r9+/gAMLHky4sOHDiBMrXsy4sePHkCNLnky5suXLmDNIa97MubPnz6BDix5NurTp06hTq17NurXr17Bjy55Nu7bt27hz697Nu7fv38CDCx9OvLjx48iTK1/OvLnz59CjS59Ovbr169izOGvfzr279+/gw4sfT768+fPo06tfz769+/fw48ufT7++/fv48+vfz7+///8ABijggAQWaOCBCCaoNeCCDDbo4IMQRijhhBRWaOGFGGao4YYcdujhhyCGKOKIJJZo4okopqjiiiy26OKLMMYo44w0LdZo44045qjjjjz26OOPQAYp5JBEFmnkkUgmqeSSTDbp5JNQRinllFRWaeWVWClmqeWWXHbp5ZdghinmmGSWaeaZaKap5ppstunmm3DGKeecdNZp55145iep55589unnn4AGKuighBZq6KGIJqrooow26uijkEYq6aSUVmrppZgjZqrpppx26umnoIYq6qiklmrqqaimquqqrLbq6quwxirrrLQg1mrrrbjmquuuvPbq66/ABivssMQWa+yxyCar7LLMNusg7LPQRivttNRWa+212Gar7bbcduvtt+CGK+645JZr7rke6Kar7rrstuvuu/DGK++89NZr77345qvvvvz26++/HAAHLPDABBds8MEIJ6zwwgw37PDDEEcs8cQUV2wc8cUYZ6zxxhx37PHHIIcs8sgkl2zyySinrPLKLBq37PLLMMcs88w012zzzTjnrPPOPPfs889ABxkt9NBEF2300UgnrfTSTDft9NNQRy311FRXGW311VhnrfXWXHft9ddghy322GSXbfbZaKcYrfbabLft9ttwxy333HTXbffdeOet9958Fvft99+ABy744IQXbvjhiCeu+OKMN+4X+OOQRy755JRXbvnlmGeu+eacd+7556AWhy766KSXbvrpqKeu+uqst+7667DHLhb77LTXbvvtuOeu++689+7778AHL/zwFMQXb/zxyCev/PLMN+/889BHL/30FNRXb/312Gev/fbcd+/99+CHL/74FOSXb/756Kev/vrst+/++/DHL//8FPTXb//9+Oev//789+///wAMoAAHFUjAAhrwgAhMoAIXyMAGOvCBEIygBBQnSMEKWvCCGMygBjfIwQ568IMgDBWhCEdIwhKa8IQoTKEKV8jCFrrwhTATjKEMZ0jDGtrwhjjMoQ53yMMe+hXwh0AMohCHSMQiGvGISEyiEpfIxCYTOvGJUIyiFKdIxSpa8YpYzKIWtxLIxS568YtgDKMYx0jGMprxjGgTTKMa18jGNrrxjXCMoxznSMc62hLxjnjMox73yMc++vGPgAykIAcSSchCGvKQiEykIhfJyEY68pGQEoykJCdJyUpa8pKYzKQmN8nJThJ68pOgDKUoR0nKUprylKhMpSoSV8nKVrrylbCMpSxnScta2vKWELjMpS53ycte+vKXwAymMIcSScxiGvOYyEymMpfJzGY685nQEIymNKdJzWpa85rYzKY2t8kRzW5685vgDKc4x0nOcprznOgJTKc618lOQQYEADs=';
+      // baseImg = img1
+      // this.jm.set_node_background_image(root.id, baseImg, 20, 20)
+
     },
     // 获取选中标签的 ID
     get_selected_nodeid() {
@@ -530,42 +622,555 @@ export default {
       }
     },
 
+
+    //voice语音输入
+    voice() {
+      const reg = new window.webkitSpeechRecognition;
+      // const reg = new window.SpeechRecognitionResult()
+      reg.lang = 'zh-CN';
+      console.log('voice')
+      const that = this
+      reg.onresult = function (event) {
+        const content = event.results[0][0].transcript;
+        console.log(`你说的是：${content}`);
+        that.selectNodeInfo.Name = content;
+      };
+      reg.start()
+      reg.end(3000)
+    },
+
+    //播放description
+    description() {
+      let selectedNode = this.jm.get_selected_node()
+      // if (selectedNode) {
+      //   console.log('description')
+      //   let msg = new SpeechSynthesisUtterance()
+      //   // msg.text = selectedNode.data
+      //   msg.text = 'hellow world'
+      //   msg.rate = 0.8
+      //   msg.pitch = 1
+      //   msg.lang = 'en-US'
+      //   msg.onstart = function (event) {
+      //     console.log('Speech started');
+      //   }
+      //   msg.onend = function (event) {
+      //     console.log('Speech ended');
+      //   }
+      //   // 'zh-CN'
+      //   window.speechSynthesis.speak(msg)
+      // }
+      // 初次播报使用模拟按钮触发
+      let data = this.desc_map.get(selectedNode.id)
+      this.virtualClick(this.SpeakVoice, data)
+      // this.speakWithDelay('hellow world')
+
+
+      this.showDescription = false
+      this.showMenu = false
+    },
+
+    SpeakVoice(msg = 'hellow world') {
+      const speech = new SpeechSynthesisUtterance(msg)
+      speech.rate = 0.8
+      speech.pitch = 1.0
+      // 设置兼容中文
+      const voices = window.speechSynthesis.getVoices()
+      speech.voice = voices.filter(function (voice) {
+        return voice.localService == true && voice.lang == 'en-US'
+      })[0]
+      console.log(window.speechSynthesis)
+      window.speechSynthesis.speak(speech)
+    },
+
+    /**
+     * 语音播报 带延迟 异步
+     * 搭配async await
+     * @param msg 播报的信息
+     */
+    speakWithDelay(utterance, delay = 1000) {
+      return new Promise(resolve => {
+        const speech = new SpeechSynthesisUtterance(utterance)
+        // 设置兼容中文
+        let voices = window.speechSynthesis.getVoices()
+        speech.voice = voices.filter(function (voice) {
+          return voice.localService == true && voice.lang == 'en-US'
+        })[0]
+        speech.onend = () => {
+          setTimeout(resolve, delay)
+        }
+        window.speechSynthesis.speak(speech)
+      })
+    },
+
+    /**
+     * 模拟按钮点击
+     * @param callback
+     */
+    virtualClick(callback, msg) {
+      let button = document.createElement('button')
+      button.textContent = '点击我'
+      // 添加点击事件处理程序
+      button.addEventListener('click', function () {
+        console.log(callback)
+        callback && callback(msg)
+      })
+
+      // 模拟用户点击事件
+      let event = new MouseEvent('click', {
+        view: window,
+        bubbles: true,
+        cancelable: true
+      })
+      button.dispatchEvent(event)
+    },
+
+    beQuiet() {
+      console.log('停止')
+      window.speechSynthesis.cancel()
+      SpeakVoice('')
+    },
+
+
+
+
+
+    //base64img转图片存前端
+    base64ImgtoFile(dataurl, filename) {
+      let arr = dataurl.split(',')
+      let mime = arr[0].match(/:(.*?);/)[1]
+      let suffix = mime.split('/')[1]
+      let bstr = atob(arr[1])
+      let n = bstr.length
+      let u8arr = new Uint8Array(n)
+      while (n--) {
+        u8arr[n] = bstr.charCodeAt(n)
+      }
+      let newName = filename
+      return new File([u8arr], `${newName}.${suffix}`, {
+        type: mime
+      })
+    },
+
+    //text to image
+    async text2img() {
+      let selectedNode = this.jm.get_selected_node()
+      if (selectedNode) {
+        this.sureEditdesc_dialogVisible = true
+        this.selectNodeInfo = {
+          id: selectedNode.data.num,
+          Name: ''
+        }
+        this.createType = 'node'
+      }
+      // let res = await post(
+      //   "/api/text_to_image",
+      //   {
+      //     "text": this.selectNodeInfo.Name,
+      //   },
+      // );
+      // this.img_map.set(this.node_id_count + 1, res.data.image)
+      // console.log(res.data.image)
+      // // let file = this.base64ImgtoFile(res.data.image, this.node_id_count + 1)
+      // // this.addImagNode(selectedNode, null, file)
+      // //let baseImg = "data:image/gif;base64,R0lGODlhCwALAIAAAAAA3pn/ZiH5BAEAAAEALAAAAAALAAsAAAIUhA+hkcuO4lmNVindo7qyrIXiGBYAOw=="
+      // this.addImgNode(selectedNode, null, "data:image/png;base64," + res.data.image)//res.data.image
+      this.showMenu = false
+    },
+
+    addImgNode(selectedNode, info, baseImg) {
+      // console.log(baseImg.startsWith('data'))
+      const selectedNode_id = selectedNode.id
+      let this_node = this.jm.add_node(selectedNode, ++this.node_id_count, info, null, 1)
+      let cur_type = this.node_map.get(selectedNode_id).type
+      this.jm.set_node_color(this.node_id_count, this.bgMap[cur_type + 1].original, '#fff')
+      this.jm.set_node_background_image(this.node_id_count, baseImg, 30, 30)
+      this.img_map.set(this.node_id_count, baseImg)
+      console.log('addimg')
+      console.log(this.node_id_count)
+      var new_node
+      new_node = new node(cur_type + 1)
+      this.node_map.set(this.node_id_count, new_node)
+      this.node_map.get(selectedNode_id).node_list.push(new_node)
+    },
+
+    //生成声音
+    async generateSound() {
+      let selectedNode = this.jm.get_selected_node()
+      if (selectedNode) {
+        this.sureEditdesc_dialogVisible = true
+        this.selectNodeInfo = {
+          id: selectedNode.data.num,
+          Name: ''
+        }
+        this.createType = 'node'
+      }
+      // let res = await post(
+      //   "/api/text_to_sound",
+      //   {
+      //     "prompt": selectedNode.parent.topic,
+      //   },
+      // );
+      // console.log(res.data.sound)
+      // this.sound_map.set(this.node_id_count + 1, res.data.sound)
+      // this.addSoundNode(selectedNode, null)
+    },
+
+    addSoundNode(selectedNode, info) {
+      const selectedNode_id = selectedNode.id
+      let this_node = this.jm.add_node(selectedNode, ++this.node_id_count, info, null, 1)
+      let cur_type = this.node_map.get(selectedNode_id).type
+      this.jm.set_node_color(this.node_id_count, this.bgMap[cur_type + 1].original, '#fff')
+      this.jm.set_node_background_image(this.node_id_count, img1, 30, 30)
+      var new_node
+      new_node = new node(cur_type + 1)
+      this.node_map.set(this.node_id_count, new_node)
+      this.node_map.get(selectedNode_id).node_list.push(new_node)
+    },
+
+
+    //画画 onload
+    draw() {
+      localStorage.setItem('text', this.jm.get_selected_node().parent.topic)
+
+      this.$router.push('/pad/' + this.jm.get_selected_node().id)
+      // this.img_map.set(this.node_id_count + 1, localStorage.getItem('img'))
+      // console.log('draw')
+      // console.log(localStorage.getItem('img'))
+      // this.addImgNode(this.jm.get_selected_node(), null, 'data:image/jpeg;base64,' + localStorage.getItem('img'))
+      this.showMenu = true
+      this.showImage = false
+    },
+
+    //查看图片
+    watch() {
+      let data = this.img_map.get(this.jm.get_selected_node().id)
+      console.log('watch')
+      console.log(this.jm.get_selected_node().id)
+      localStorage.setItem('img', data)
+      this.$router.push('/canvas')// + this.jm.get_selected_node().id
+      this.watchImage = false
+      this.showMenu = true
+    },
+
+    //播放声音
+    play() {
+      let selectedNode = this.jm.get_selected_node()
+      let sound = this.sound_map.get(selectedNode.id)
+      let snd = new Audio(`data:audio/wav;base64,${sound}`)
+      snd.play();
+      this.showMenu = false
+      this.showSound = false
+    },
+
+    //function dict
+    function_dict() {
+      let root = this.jm.get_root()
+      let dict = '{'
+      dict += '"' + root.topic + '": {{'
+      const that = this
+      if (root.children.length > 0) {
+        root.children.forEach(function (child) {  //car
+          dict += '"' + child.topic + '": {{'
+          child.children.forEach(function (ch) { //Logic
+            if (ch.topic == "逻辑") {
+              dict += '"' + 'function' + '": ['
+              if (ch.children.length > 0) {
+                ch.children.forEach(function (c) { //
+                  dict += '"' + c.topic + '",'
+                })
+              }
+              dict += ']'
+            }
+          })
+          dict += '}},'
+        })
+      }
+      dict += '}}}'
+      return dict
+    },
+
+
+    //给空白logic后添加
+    async newLogic() {
+      let p, s
+
+      let selectedNode = this.jm.get_selected_node()
+      p = selectedNode.parent.topic
+      s = new Array()
+      s.push(selectedNode.parent.topic)
+      console.log(s)
+      let dict = this.function_dict()
+      console.log(p)
+      console.log(dict)
+      let res = await post(
+        "/api/character_decomposition",
+        {
+          "question": p,
+          "memory_dict": dict,
+        },
+      );
+
+      console.log(res.data)
+      // console.log("res.data.answer")
+      const that = this
+      this.addOneNode(selectedNode, res.data.answer)
+      // res.data.answer.forEach(function (child) {
+      //   that.addOneNode(selectedNode, child)
+      // })
+    },
+
+    //logic dict
+    logic_dict(selectedNode) {
+      let sn = selectedNode
+      while (sn.topic != "逻辑") {
+        sn = sn.parent
+      }
+      const that = this
+      let dict = '{"' + sn.parent.parent.topic + '": {{"' + sn.parent.topic + '": {{'
+      dict += '"function": {{'
+      if (sn.children.length > 0) {
+        sn.children.forEach(function (child) {
+          dict += '"' + child.topic + '": ['
+          if (child.children.length > 0) {
+            child.children.forEach(function (c) {
+              dict += '"' + c.topic + '",'
+            })
+          }
+          dict += '],'
+        })
+      }
+      dict += '}}}}}}}'
+      return dict
+    },
+
+
+    //给已有logic后添加
+    async addLogic() {
+      let f, p
+      let selectedNode = this.jm.get_selected_node()
+      f = selectedNode.topic
+      if (selectedNode.children.length == 0) {
+        p = null
+      } else {
+        p = new Array()
+        selectedNode.children.forEach(function (child) { p.push(child.topic) })
+      }
+      let dict = this.logic_dict(selectedNode)
+      console.log(dict)
+      let res = await post(
+        "/api/new_logic",
+        {
+          "question": f,
+          "memory_dict": dict,
+        },
+      );
+      console.log(res)
+      const that = this
+      this.addOneNode(selectedNode, res.data.logic)
+      // res.data.logic.forEach(function (child) {
+      //   that.addOneNode(selectedNode, child)
+      // })
+    },
+
+    async addCode() {
+      let l, p
+      let selectedNode = this.jm.get_selected_node()
+      l = selectedNode.topic
+      let res = await post(
+        "/api/generate_code",
+        {
+          "logic": l,
+        },
+      );
+      console.log(res)
+      const that = this
+      res.data.code.forEach(function (child) {
+        that.addCodeNode(selectedNode, child)
+      })
+      this.showMenu = false
+    },
+
+
+
+
+    //添加gpt对象节点,有description
+    newGptObject_des(selectedNode, info, data) {
+      this.desc_map.set(this.node_id_count + 1, data)
+      const selectedNode_id = selectedNode.id
+      let this_node = this.jm.add_node(selectedNode, ++this.node_id_count, info, null, 1)
+      let cur_type = this.node_map.get(selectedNode_id).type
+      this.jm.set_node_color(this.node_id_count, this.bgMap[cur_type + 1].original, '#fff')
+      var new_node
+      new_node = new node(cur_type + 1)
+      this.node_map.set(this.node_id_count, new_node)
+      this.node_map.get(selectedNode_id).node_list.push(new_node)
+    },
+
+
+    //生成 object dict
+    object_dict() {
+      let root = this.jm.get_root()
+      let dict = '{'
+      dict += '"' + root.topic + '": {{'
+      const that = this
+      if (root.children.length > 0) {
+        root.children.forEach(function (child) {
+          dict += '"' + child.topic + '": {{'
+          if (that.desc_map.get(child.id)) {
+            dict += '"' + 'descripition' + '": "' + that.desc_map.get(child.id) + '"'
+          }
+          dict += '}},'
+        })
+      }
+      dict += '}}}'
+      return dict
+    },
+
+    //添加gpt对象
+    async newGptObject() {
+      let p, s
+      if (this.root) {
+        this.root = this.jm.get_root()
+        p = this.root.topic
+        if (this.root.children.length > 0) {
+          s = new Array()
+          this.root.children.forEach(function (child) { s.push(child.topic) })
+        } else {
+          s = null
+        }
+      }
+      let dict = this.object_dict()
+      console.log(dict)
+      let res = await post(
+        "/api/new_object",
+        {
+          "project": p,
+          "memory_dict": dict,
+        },
+      );
+      // this.addOneNode(this.root, res.data.spriteName) //添加object
+      this.newGptObject_des(this.root, res.data.spriteName, res.data.description)
+      let new_id = this.node_id_count
+      let new_node = this.jm.get_node(new_id)
+      //给object后添加Image、logic、sound
+      this.addOneNode(new_node, "图片")
+      this.addOneNode(new_node, "逻辑")
+      this.addOneNode(new_node, "声音")
+    },
+
+
+
+    //操作jsmind, 向selectedNode中添加一个info节点
+    addOneNode(selectedNode, info) {
+      // const selectedNode = this.jm.get_selected_node()
+      const selectedNode_id = selectedNode.id
+      let this_node = this.jm.add_node(selectedNode, ++this.node_id_count, info, null, 1)
+      let cur_type = this.node_map.get(selectedNode_id).type
+      if (cur_type == 4) {
+        this.jm.set_node_color(this.node_id_count, this.bgMap[4].original, '#fff')
+      } else {
+        this.jm.set_node_color(this.node_id_count, this.bgMap[cur_type + 1].original, '#fff')
+      }
+      var new_node
+      if (cur_type == 4) {
+        new_node = new node(cur_type)
+      } else {
+        new_node = new node(cur_type + 1)
+      }
+
+      this.node_map.set(this.node_id_count, new_node)
+      this.node_map.get(selectedNode_id).node_list.push(new_node)
+      // return this.node_id_count - 1
+    },
+
+    //操作jsmind, 向selectedNode中添加一个info节点
+    addCodeNode(selectedNode, info) {
+      // const selectedNode = this.jm.get_selected_node()
+      const selectedNode_id = selectedNode.id
+      let this_node = this.jm.add_node(selectedNode, ++this.node_id_count, info, null, 1)
+      let cur_type = this.node_map.get(selectedNode_id).type
+      this.jm.set_node_color(this.node_id_count, this.bgMap[cur_type + 1].original, '#fff')
+      var new_node
+      new_node = new node(cur_type + 1)
+      this.node_map.set(this.node_id_count, new_node)
+      this.node_map.get(selectedNode_id).node_list.push(new_node)
+      // return this.node_id_count - 1
+    },
+
+
+    //生成声音和图像的描述
+    async sureEditdesc() {
+      let selectedNode = this.jm.get_selected_node()
+      if (selectedNode.topic == "图片") {
+        console.log('surEditdesc')
+        let res = await post(
+          "/api/text_to_image",
+          {
+            "text": this.selectNodeInfo.Name,
+          },
+        );
+        // this.img_map.set(this.node_id_count + 1, res.data.image)
+        console.log('surEditdesc')
+        console.log(selectedNode.id)
+        console.log(res.data.image)
+        // let file = this.base64ImgtoFile(res.data.image, this.node_id_count + 1)
+        // this.addImagNode(selectedNode, null, file)
+        //let baseImg = "data:image/gif;base64,R0lGODlhCwALAIAAAAAA3pn/ZiH5BAEAAAEALAAAAAALAAsAAAIUhA+hkcuO4lmNVindo7qyrIXiGBYAOw=="
+        this.addImgNode(selectedNode, null, "data:image/png;base64," + res.data.image)//res.data.image
+      } else if (selectedNode.topic == "Sound") {
+        let res = await post(
+          "/api/text_to_sound",
+          {
+            "prompt": this.selectNodeInfo.Name,
+          },
+        );
+        console.log(res.data.sound)
+        this.sound_map.set(this.node_id_count + 1, res.data.sound)
+        this.addSoundNode(selectedNode, null)
+      }
+
+      this.showMenu = true
+      this.sureEditdesc_dialogVisible = false
+    },
+
     // 保存节点
-    sureEditNode() {
+    async sureEditNode() {
       if (!this.selectNodeInfo.Name) {
         this.$message.info('please input content')
         return
       }
+      let info = null
+      if (this.createType === 'node') {
+        // node
+        // TODO 
+        info = this.selectNodeInfo.Name
+      } else if (this.createType === 'GPT node') {
+        // GPT node
+        // TODO 
 
-      if (this.createType === 'bro') {
-        // 平级
-        // TODO 
-        // const selectedNode = this.jm.get_selected_node()
-        // const selectedNode_id = selectedNode.id
-        // this.jm.add_node(selectedNode, ++this.node_id_count, this.selectNodeInfo.Name)
-        // // var cur_type = this.node_map.get(selectedNode_id).type
-        // var cur_type = 3
-        // this.jm.set_node_color(this.node_id_count, this.bgMap[cur_type + 1].original, '#fff')
-        // var new_node = new node(cur_type + 1)
-        // this.map.add(this.node_id_count, new_node)
-      } else {
-        // 子级
-        // TODO 
-        const selectedNode = this.jm.get_selected_node()
-        const selectedNode_id = selectedNode.id
-        this.jm.add_node(selectedNode, ++this.node_id_count, this.selectNodeInfo.Name, null, 'right')
-        if (this.node_map.get(selectedNode_id)) {
-          let cur_type = this.node_map.get(selectedNode_id).type
-          // var cur_type = 3
-          console.log("curtype:" + this.node_map.get(selectedNode_id))
-        }
-        // let cur_type = this.node_map.get(selectedNode_id).type
-        cur_type = 3
-        this.jm.set_node_color(this.node_id_count, this.bgMap[cur_type + 1].original, '#fff')
-        var new_node = new node(cur_type + 1)
-        this.node_map.set(this.node_id_count, new_node)
       }
+      this.addOneNode(this.jm.get_selected_node(), info)
+      const selectedNode = this.jm.get_selected_node()
+      const selectedNode_id = selectedNode.id
+      let cur_type = this.node_map.get(selectedNode_id).type
+      if (cur_type == 1) {
+        let new_id = this.node_id_count
+        let new_node = this.jm.get_node(new_id)
+        //给object后添加Image、logic、sound
+        this.addOneNode(new_node, "图片")
+        this.addOneNode(new_node, "逻辑")
+        this.addOneNode(new_node, "声音")
+        console.log(this.jm.get_data('node_tree').data)
+      }
+
       this.dialogVisible = false
+      this.showMenu = false
+      this.showDescription = false
+      this.showGenerateCode = false
+      this.showImage = false
+      this.showSound = false
+      this.watchImage = false
+      this.playSound = false
     },
 
     // 拖拽
@@ -599,9 +1204,16 @@ export default {
         this.$message.error('please select one node')
       }
       this.showMenu = false
+      this.showDescription = false
+      this.showGenerateCode = false
+      this.showImage = false
+      this.showSound = false
+      this.watchImage = false
+      this.playSound = false
     },
-    // 插入平级
-    addBrother() {
+
+    // 插入node
+    addnode() {
       const selectedNode = this.jm.get_selected_node()
       if (selectedNode.data) {
         this.dialogVisible = true
@@ -609,29 +1221,61 @@ export default {
           id: selectedNode.data.num,
           Name: ''
         }
-        this.createType = 'bro'
+        this.createType = 'node'
       } else {
         this.$message.error('please select one node')
       }
 
       this.showMenu = false
+      this.showDescription = false
+      this.showGenerateCode = false
+      this.showImage = false
+      this.showSound = false
+      this.watchImage = false
+      this.playSound = false
     },
 
-    // 插入子级
-    addChild() {
+    // 插入GPT node
+    async addGPTnode() {
       const selectedNode = this.jm.get_selected_node()
-      if (selectedNode.data) {
-        this.dialogVisible = true
-        this.selectNodeInfo = {
-          id: selectedNode.data.num,
-          Name: ''
+      if (selectedNode) {
+        this.dialogVisible = false
+        // this.selectNodeInfo = {
+        //   id: selectedNode.data.num,
+        //   Name: ''
+        // }
+        this.createType = 'GPT node'
+        const selectedNode = this.jm.get_selected_node()
+        const selectedNode_id = selectedNode.id
+        let cur_type = this.node_map.get(selectedNode_id).type
+        // console.log("cutype" + cur_type)
+        switch (cur_type) {
+          case 1:
+            await this.newGptObject()
+            break
+          case 3:
+            if (selectedNode.topic == 'Logic') {
+              console.log("logic")
+              await this.newLogic()
+
+            }
+            break
+          case 4:
+            // await this.addCode()
+            await this.addLogic()
+          default:
+            break
         }
-        this.createType = 'child'
       } else {
         this.$message.error('please select one node')
       }
-
+      this.showDescription = false
       this.showMenu = false
+      this.showGenerateCode = false
+      this.showImage = false
+      this.showSound = false
+      this.watchImage = false
+      this.playSound = false
     },
 
     // 删除卡片
@@ -646,6 +1290,7 @@ export default {
         this.$message.error('please select one node')
       }
       this.showMenu = false
+      this.showDescription = false
     },
 
     // 鼠标滚轮放大缩小
@@ -735,6 +1380,22 @@ export default {
       }
     }
   },
+
+  //添加图画节点
+  activated() {
+    console.log('onupdated')
+    if (localStorage.getItem('draw_flag') == '1') {
+      // this.img_map.set(this.node_id_count + 2, localStorage.getItem('img'))
+      // console.log(localStorage.getItem('img'))
+      let data = localStorage.getItem('img')
+      if (!data.startsWith("data")) {
+        data = 'data:image/jpeg;base64,' + data
+      }
+      this.addImgNode(this.jm.get_selected_node(), null, data)
+    }
+    localStorage.setItem('draw_flag', '0')
+  },
+
   mounted() {
     this.jm = jsMind.show(this.options, this.mind)
 
